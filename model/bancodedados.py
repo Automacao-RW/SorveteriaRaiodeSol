@@ -5,11 +5,11 @@ class BancoDados:
     def __init__(self):
         """Inicializa a conexão com o banco PostgreSQL"""
         self.conexao = psycopg2.connect(
-            dbname="sorveteria",    
-            user="postgres",        
-            password="********",   
-            host="localhost",      
-            port="5432"             
+            dbname="sorveteria",  
+            user="postgres",      
+            password="****", 
+            host="localhost",     
+            port="5432"           
         )
         self.cursor = self.conexao.cursor()
         self._criar_tabela()
@@ -22,7 +22,8 @@ class BancoDados:
                 nome TEXT NOT NULL,
                 sabor TEXT NOT NULL,
                 valor REAL NOT NULL,
-                quantidade INTEGER NOT NULL
+                quantidade INTEGER NOT NULL,
+                data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         self.conexao.commit()

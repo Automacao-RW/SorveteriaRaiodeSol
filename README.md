@@ -1,6 +1,6 @@
 # 🍦 Sorveteria Raio de Sol
 
-Este é um **Sistema de Cadastro de Itens de Sorveteria** desenvolvido em Python utilizando Streamlit para interface gráfica, esse projeto foi desenvolvido em Conjunto com Rafael Antonio dos Santos para a materia Software Product: Analysis, Specification, Project & Implementation.
+Este é um **Sistema de Cadastro de Itens de Sorveteria** desenvolvido em Python utilizando Streamlit para interface gráfica e PostgreSQL como banco de dados, esse projeto foi desenvolvido para a materia Software Product: Analysis, Specification, Project & Implementation.
 
 ---
 
@@ -12,6 +12,7 @@ Cadastro de novos itens (Nome, Sabor, Valor, Quantidade)
 ## Tecnologias Utilizadas
 - **Python 3.12**
 - **Streamlit** (Interface gráfica)
+- **PostgreSQL (psycopg2 Banco de Dados)**
 - **Arquitetura MVC (Model-View-Controller)**
 
 ---
@@ -32,8 +33,8 @@ SORVETERIA_WEB/
 
 1.Clonar o Repositório
 
-git clone https://github.com/WagnerOliveiraP/sorveteria-web.git
-cd sorveteria-web
+git clone https://github.com/Automacao-RW/SorveteriaRaiodeSol
+cd SORVETERIARAIODESOL
 
 2.Criar e Ativar o Ambiente Virtual
 
