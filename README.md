@@ -19,15 +19,17 @@ Cadastro de novos itens (Nome, Sabor, Valor, Quantidade)
 
 ## Estrutura do Projeto
 
-SORVETERIA_WEB/
-│️── model/
-│   ├── item.py          # Modelo do item
-│   ├── banco_dados.py   # Simulação do banco de dados (TXT)
-│️── controller/
-│   ├── controlador_item.py  # Regras de controle
-│️── app.py               # Interface gráfica com Streamlit
-│️── requirements.txt      # Dependências do projeto
-│️── README.md            # Documentação do projeto
+sorveteria_mvc/
+│── model/
+│   ├── item.py
+│   ├── banco_dados.py
+│── controller/
+│   ├── controlador_item.py
+│── view/ 
+│   ├── app.py
+│── main.py  
+│── requirements.txt
+
 
 ## Como Instalar e Rodar o Projeto
 

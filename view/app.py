@@ -11,7 +11,6 @@ def interface():
     st.title("🍦 Sorveteria Raio de Sol")
     menu = st.sidebar.selectbox("Escolha uma opção:", ["Cadastrar Item"])
 
-    # Cadastrar Sorvete ou Item
     if menu == "Cadastrar Item":
         st.header("Cadastrar Novo Item")
 

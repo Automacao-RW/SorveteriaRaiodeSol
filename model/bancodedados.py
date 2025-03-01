@@ -38,9 +38,9 @@ class BancoDados:
                 (item.nome, item.sabor, item.valor, item.quantidade)
             )
 
-            self.conexao.commit()  # Confirma a transação
+            self.conexao.commit()  
             print("Item adicionado com sucesso!")
 
         except Exception as e:
-            self.conexao.rollback()  # Cancela a transação em caso de erro
+            self.conexao.rollback()
             print(f"Erro ao adicionar item: {e}")
