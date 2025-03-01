@@ -7,7 +7,7 @@ class BancoDados:
         self.conexao = psycopg2.connect(
             dbname="sorveteria",  
             user="postgres",      
-            password="****", 
+            password="*****",
             host="localhost",     
             port="5432"           
         )
@@ -29,9 +29,18 @@ class BancoDados:
         self.conexao.commit()
 
     def adicionar_item(self, item: Item):
-        """Adiciona um novo item ao banco de dados"""
-        self.cursor.execute(
-            "INSERT INTO itens (nome, sabor, valor, quantidade) VALUES (%s, %s, %s, %s) RETURNING id",
-            (item.nome, item.sabor, item.valor, item.quantidade)
-        )
-        self.conexao.commit()
+        """Adiciona um novo item ao banco de dados com transação"""
+        try:
+            self.cursor.execute("BEGIN;")
+            
+            self.cursor.execute(
+                "INSERT INTO itens (nome, sabor, valor, quantidade) VALUES (%s, %s, %s, %s) RETURNING id",
+                (item.nome, item.sabor, item.valor, item.quantidade)
+            )
+
+            self.conexao.commit()  # Confirma a transação
+            print("Item adicionado com sucesso!")
+
+        except Exception as e:
+            self.conexao.rollback()  # Cancela a transação em caso de erro
+            print(f"Erro ao adicionar item: {e}")
