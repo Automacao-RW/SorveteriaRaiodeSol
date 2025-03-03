@@ -4,6 +4,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from controller.controlador_item import ControladorItem
 
+# Configuração da página
+st.set_page_config(page_title="App-Sorveteria-Raio-de-Sol")
+
 # Instanciando a Classe do Controlador
 controlador = ControladorItem()
 
