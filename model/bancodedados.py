@@ -1,5 +1,6 @@
 import psycopg2
 from model.item import Item
+from datetime import datetime
 
 class BancoDados:
     def __init__(self):
@@ -7,7 +8,7 @@ class BancoDados:
         self.conexao = psycopg2.connect(
             dbname="sorveteria",  
             user="postgres",      
-            password="*******",
+            password="Maya123",
             host="localhost",     
             port="5432"           
         )
@@ -67,6 +68,17 @@ class BancoDados:
                 quantidade INTEGER NOT NULL,
                 categoria TEXT NOT NULL,
                 data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS financeiro (
+                id SERIAL PRIMARY KEY,
+                tipo TEXT NOT NULL CHECK (tipo IN ('Receita', 'Despesa')),
+                valor REAL NOT NULL CHECK (valor >= 0),
+                descricao TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                data_lancamento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
@@ -485,6 +497,52 @@ class BancoDados:
             quantidades[freezer_id][sabor] = quantidade
 
         return quantidades
+
+    def lancar_financeiro(self, tipo, categoria, descricao, valor, data=None):
+        try:
+            if data is None:
+                data = datetime.now().date()
+            self.cursor.execute("""
+                INSERT INTO financeiro (tipo, categoria, descricao, valor, data_lancamento)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (tipo, categoria, descricao, valor, data))
+            self.conexao.commit()
+            return True
+        except Exception as e:
+            print("Erro ao lançar financeiro:", e)
+            self.conexao.rollback()
+            return False
+
+    def obter_resumo_financeiro(self, data_inicio, data_fim):
+        self.cursor.execute("""
+            SELECT tipo, SUM(valor)
+            FROM financeiro
+            WHERE data_lancamento BETWEEN %s AND %s
+            GROUP BY tipo
+        """, (data_inicio, data_fim))
+        return self.cursor.fetchall()
+    
+    def excluir_lancamento_financeiro(self, id_lancamento):
+        self.cursor.execute("DELETE FROM financeiro WHERE id = %s", (id_lancamento,))
+        self.conexao.commit()
+        return True
+    
+    def listar_lancamentos(self, data_inicio, data_fim):
+        self.cursor.execute("""
+            SELECT id, tipo, categoria, descricao, valor, data_lancamento
+            FROM financeiro
+            WHERE data_lancamento BETWEEN %s AND %s
+            ORDER BY data_lancamento DESC
+        """, (data_inicio, data_fim))
+        resultados = self.cursor.fetchall()
+        return [
+            {
+                "id": r[0], "tipo": r[1], "categoria": r[2], "descricao": r[3],
+                "valor": r[4], "data": r[5].strftime("%d/%m/%Y")
+            } for r in resultados
+        ]
+
+
 
         
 
