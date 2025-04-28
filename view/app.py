@@ -15,7 +15,7 @@ controlador = ControladorItem()
 
 def interface():
     st.title("🍦 Sorveteria Raio de Sol")
-    menu = st.sidebar.selectbox("Escolha uma opção:", ["Cadastrar Sorvete","Cadastrar Despesas Gerais","Cadastrar Eletrônico","Estoque Aberto", "Estoque Fechado","Transferencia de Produtos"])
+    menu = st.sidebar.selectbox("Escolha uma opção:", ["Cadastrar Sorvete","Cadastrar Despesas Gerais","Cadastrar Eletrônico","Estoque Aberto", "Estoque Fechado","Transferencia de Produtos","Financeiro"])
 
     #Cadastrar Item
     if menu == "Cadastrar Sorvete":
@@ -324,6 +324,100 @@ def interface():
                             st.error(mensagem)
                 else:
                     st.warning("⚠️ Não há picolés suficientes para mover ou o freezer de destino está cheio.")
+        
+    elif menu == "Financeiro":
+        st.subheader("💰 Lançar Receita ou Despesa")
+
+        tipo = st.selectbox("Tipo de lançamento:", ["Receita", "Despesa"])
+        categoria = st.text_input("Categoria:")
+        descricao = st.text_input("Descrição:")
+        valor = st.number_input("Valor:", min_value=0.0, step=0.01)
+        data = st.date_input("Data do lançamento:", value=datetime.today())
+
+        if st.button("Lançar"):
+            sucesso = controlador.lancar_financeiro(tipo,categoria,descricao,valor,data)
+            if sucesso:
+                st.success("✅ Lançamento realizado com sucesso!")
+            else:
+                st.error("❌ Erro ao lançar no financeiro.")
+
+
+        st.divider()
+        st.subheader("📋 Lançamentos Recentes")
+
+        data_inicio = st.date_input("Data Inicial:", value=datetime.today().replace(day=1), key="data_inicio")
+        data_fim = st.date_input("Data Final:", value=datetime.today(), key="data_fim")
+
+        if data_inicio > data_fim:
+            st.warning("⚠️ A data inicial não pode ser maior que a final.")
+            return
+
+        resultados = controlador.listar_lancamentos(data_inicio, data_fim)
+
+        receitas = sum(l["valor"] for l in resultados if l["tipo"] == "Receita")
+        despesas = sum(l["valor"] for l in resultados if l["tipo"] == "Despesa")
+        saldo = receitas - despesas
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("💰 Total de Receitas", f"R$ {receitas:.2f}")
+        col2.metric("📉 Total de Despesas", f"R$ {despesas:.2f}")
+        col3.metric("💼 Saldo Líquido", f"R$ {saldo:.2f}", delta_color="normal" if saldo >= 0 else "inverse")
+
+        
+        st.divider()
+        st.subheader("📂 Filtros e Tabela Completa de Lançamentos")
+
+        tipos_disponiveis = list(set(l["tipo"] for l in resultados))
+        categorias_disponiveis = list(set(l["categoria"] for l in resultados))
+
+        tipo_filtro = st.multiselect("Filtrar por Tipo:", tipos_disponiveis, default=tipos_disponiveis)
+        categoria_filtro = st.multiselect("Filtrar por Categoria:", categorias_disponiveis, default=categorias_disponiveis)
+
+        filtrados = [
+            l for l in resultados
+            if l["tipo"] in tipo_filtro and l["categoria"] in categoria_filtro
+        ]
+
+        # Cria DataFrame e exibe
+        df_filtrado = pd.DataFrame(filtrados)
+        if not df_filtrado.empty:
+            df_filtrado["valor"] = df_filtrado["valor"].map(lambda x: f"R$ {x:.2f}")
+            st.dataframe(df_filtrado.rename(columns={
+                "data": "Data",
+                "tipo": "Tipo",
+                "categoria": "Categoria",
+                "descricao": "Descrição",
+                "valor": "Valor"
+            }), use_container_width=True)
+        else:
+            st.info("⚠️ Nenhum lançamento encontrado com os filtros aplicados.")
+        
+        st.divider()
+        st.subheader("📊 Gráfico de Receita vs Despesa por Data")
+
+        df = pd.DataFrame(resultados)
+        if not df.empty:
+            df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")  # aplica o formato correto
+
+            resumo = df.groupby(["data", "tipo"])["valor"].sum().reset_index()
+            pivotado = resumo.pivot(index="data", columns="tipo", values="valor").fillna(0)
+
+            st.line_chart(pivotado)
+        else:
+            st.info("Sem dados suficientes para gerar o gráfico.")
+        
+        st.divider()
+
+        with st.expander("📄 Ver todos os lançamentos detalhados"):
+            for lancamento in resultados:
+                col1, col2 = st.columns([6, 1])
+                with col1:
+                    st.markdown(f"**{lancamento['data']} - {lancamento['tipo']} - {lancamento['categoria']}**")
+                    st.caption(f"{lancamento['descricao']} | R$ {lancamento['valor']:.2f}")
+                with col2:
+                    if st.button("🗑️", key=f"del_{lancamento['id']}"):
+                        controlador.excluir_lancamento_financeiro(lancamento['id'])
+                        st.rerun()
 
 
 if __name__ == "__main__":

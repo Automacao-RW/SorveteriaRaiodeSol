@@ -66,4 +66,17 @@ class ControladorItem:
     def obter_quantidade_por_sabor(self):
         """Obter Quantidade por sabor"""
         return self.banco.obter_quantidade_por_sabor()
+    
+    def lancar_financeiro(self, tipo, categoria, descricao, valor, data):
+        """Lança uma nova receita ou despesa no financeiro"""
+        return self.banco.lancar_financeiro(tipo, categoria, descricao, valor, data)
+
+    def excluir_lancamento_financeiro(self, id_lancamento):
+        """Exclui um lançamento do financeiro pelo ID"""
+        return self.banco.excluir_lancamento_financeiro(id_lancamento)
+
+    def listar_lancamentos(self, data_inicio, data_fim):
+        """Lista os lançamentos financeiros por período"""
+        return self.banco.listar_lancamentos(data_inicio, data_fim)
+
 
