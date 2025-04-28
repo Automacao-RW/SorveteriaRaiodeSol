@@ -8,7 +8,7 @@ class BancoDados:
         self.conexao = psycopg2.connect(
             dbname="sorveteria",  
             user="postgres",      
-            password="Maya123",
+            password="xxxxxx",
             host="localhost",     
             port="5432"           
         )
