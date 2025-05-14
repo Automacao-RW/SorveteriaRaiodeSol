@@ -7,9 +7,9 @@ class ControladorItem:
     def __init__(self):
         self.banco = BancoDados()
 
-    def cadastrar_item(self, nome, sabor,valor_compra,valor_venda, quantidade, freezer_id,validade):
+    def cadastrar_item(self, nome, sabor, valor_compra, valor_venda, quantidade, freezer_id, validade, codigo_barras):
         """Tenta cadastrar o item e retorna sucesso ou erro"""
-        item = Item(nome=nome, sabor=sabor, valor_compra=valor_compra,valor_venda=valor_venda, quantidade=quantidade,validade=validade)
+        item = Item(nome=nome, sabor=sabor, valor_compra=valor_compra,valor_venda=valor_venda, quantidade=quantidade,validade=validade,codigo_barras=codigo_barras)
         sucesso, mensagem = self.banco.adicionar_item(item, freezer_id)
         return sucesso, mensagem
 
@@ -67,9 +67,9 @@ class ControladorItem:
         """Obter Quantidade por sabor"""
         return self.banco.obter_quantidade_por_sabor()
     
-    def lancar_financeiro(self, tipo, categoria, descricao, valor, data):
+    def lancar_financeiro(self, tipo, categoria, descricao, valor, data,operador):
         """Lança uma nova receita ou despesa no financeiro"""
-        return self.banco.lancar_financeiro(tipo, categoria, descricao, valor, data)
+        return self.banco.lancar_financeiro(tipo, categoria, descricao, valor, data,operador)
 
     def excluir_lancamento_financeiro(self, id_lancamento):
         """Exclui um lançamento do financeiro pelo ID"""
@@ -78,5 +78,18 @@ class ControladorItem:
     def listar_lancamentos(self, data_inicio, data_fim):
         """Lista os lançamentos financeiros por período"""
         return self.banco.listar_lancamentos(data_inicio, data_fim)
+    
+    def finalizar_venda_com_carrinho(self, carrinho, operador, forma_pagamento):
+        """Lançar os lançamentos financeiros por carrinho"""
+        return self.banco.finalizar_venda_com_carrinho(carrinho, operador, forma_pagamento)
+    
+    def cadastrar_cupom(self, codigo, percentual_desconto, validade, limite_uso):
+        return self.banco.cadastrar_cupom(codigo, percentual_desconto, validade, limite_uso)
+
+    def listar_cupons(self):
+        return self.banco.listar_cupons()
+
+    def excluir_cupom(self, codigo):
+        return self.banco.excluir_cupom(codigo)
 
 

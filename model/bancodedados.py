@@ -8,7 +8,7 @@ class BancoDados:
         self.conexao = psycopg2.connect(
             dbname="sorveteria",  
             user="postgres",      
-            password="Maya123",
+            password="*****",
             host="localhost",     
             port="5432"           
         )
@@ -56,7 +56,9 @@ class BancoDados:
                 validade DATE,
                 quantidade INTEGER NOT NULL,
                 data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                freezer_id INTEGER REFERENCES eletronicos(id) ON DELETE CASCADE
+                freezer_id INTEGER REFERENCES eletronicos(id) ON DELETE CASCADE,
+                codigo_barras TEXT NOT NULL
+
             )
         ''')
 
@@ -72,13 +74,26 @@ class BancoDados:
         ''')
 
         self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cupons_desconto (
+            id SERIAL PRIMARY KEY,
+            codigo TEXT UNIQUE NOT NULL,
+            percentual_desconto REAL NOT NULL CHECK (percentual_desconto > 0 AND percentual_desconto <= 100),
+            validade DATE NOT NULL,
+            limite_uso INTEGER NOT NULL CHECK (limite_uso >= 1),
+            usos_restantes INTEGER NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS financeiro (
                 id SERIAL PRIMARY KEY,
                 tipo TEXT NOT NULL CHECK (tipo IN ('Receita', 'Despesa')),
                 valor REAL NOT NULL CHECK (valor >= 0),
                 descricao TEXT NOT NULL,
                 categoria TEXT NOT NULL,
-                data_lancamento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                data_lancamento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                operador TEXT
             )
         ''')
 
@@ -362,25 +377,29 @@ class BancoDados:
             if item.quantidade > espaco_disponivel:
                 raise Exception(f"❌ O freezer selecionado só tem espaço para {espaco_disponivel} picolés!")
 
-            self.cursor.execute(
-                "SELECT id, quantidade FROM itens WHERE nome = %s AND sabor = %s AND freezer_id = %s",
-                (item.nome, item.sabor, freezer_id)
-            )
+            # Verifica se já existe o item (nome, sabor, código e freezer)
+            self.cursor.execute("""
+                SELECT id, quantidade FROM itens 
+                WHERE nome = %s AND sabor = %s AND freezer_id = %s AND codigo_barras = %s
+            """, (item.nome, item.sabor, freezer_id, item.codigo_barras))
             resultado = self.cursor.fetchone()
 
             if resultado:
                 item_id, quantidade_atual = resultado
                 nova_quantidade = quantidade_atual + item.quantidade
 
-                self.cursor.execute(
-                    "UPDATE itens SET quantidade = %s WHERE id = %s",
-                    (nova_quantidade, item_id)
-                )
+                self.cursor.execute("""
+                    UPDATE itens SET quantidade = %s WHERE id = %s
+                """, (nova_quantidade, item_id))
             else:
-                self.cursor.execute('''
-                    INSERT INTO itens (nome, sabor, valor_compra, valor_venda, quantidade, validade, freezer_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ''', (item.nome, item.sabor, item.valor_compra, item.valor_venda, item.quantidade, item.validade, freezer_id))
+                self.cursor.execute("""
+                    INSERT INTO itens 
+                    (nome, sabor, valor_compra, valor_venda, quantidade, validade, freezer_id, codigo_barras)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    item.nome, item.sabor, item.valor_compra, item.valor_venda,
+                    item.quantidade, item.validade, freezer_id, item.codigo_barras
+                ))
 
             self.conexao.commit()
             return True, f"✅ Item '{item.nome}' cadastrado corretamente no Freezer {freezer_id}!"
@@ -388,6 +407,7 @@ class BancoDados:
         except Exception as e:
             self.conexao.rollback()
             return False, str(e)
+
         
     def calcular_estoque_por_ambiente(self, ambiente):
         """Calcula a quantidade e valor do estoque com base no ambiente do freezer (Aberto ou Fechado)."""
@@ -498,14 +518,15 @@ class BancoDados:
 
         return quantidades
 
-    def lancar_financeiro(self, tipo, categoria, descricao, valor, data=None):
+    
+    def lancar_financeiro(self, tipo, categoria, descricao, valor, data=None, operador=None):
         try:
             if data is None:
                 data = datetime.now().date()
             self.cursor.execute("""
-                INSERT INTO financeiro (tipo, categoria, descricao, valor, data_lancamento)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (tipo, categoria, descricao, valor, data))
+                INSERT INTO financeiro (tipo, categoria, descricao, valor, data_lancamento, operador)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (tipo, categoria, descricao, valor, data, operador))
             self.conexao.commit()
             return True
         except Exception as e:
@@ -527,9 +548,55 @@ class BancoDados:
         self.conexao.commit()
         return True
     
+
+    def buscar_item_por_codigo(self, codigo):
+        self.cursor.execute("""
+            SELECT id, nome, sabor, valor_venda, quantidade FROM itens
+            WHERE codigo_barras = %s
+        """, (codigo,))
+        resultado = self.cursor.fetchone()
+        if resultado:
+            return {
+                "id": resultado[0],
+                "nome": resultado[1],
+                "sabor": resultado[2],
+                "valor_venda": resultado[3],
+                "quantidade": resultado[4]
+            }
+        return None
+    
+    def baixar_estoque_e_registrar_venda(self, item_id, valor_venda):
+        try:
+            self.cursor.execute("BEGIN;")
+
+            self.cursor.execute("""
+                SELECT quantidade FROM itens WHERE id = %s
+            """, (item_id,))
+            qtd_atual = self.cursor.fetchone()
+
+            if not qtd_atual or qtd_atual[0] <= 0:
+                raise Exception("Produto sem estoque disponível.")
+
+            self.cursor.execute("""
+                UPDATE itens SET quantidade = quantidade - 1
+                WHERE id = %s
+            """, (item_id,))
+
+            self.cursor.execute("""
+                INSERT INTO financeiro (tipo, categoria, descricao, valor)
+                VALUES ('Receita', 'Venda', 'Venda realizada via PDV', %s)
+            """, (valor_venda,))
+
+            self.conexao.commit()
+            return True, "✅ Venda registrada com sucesso."
+
+        except Exception as e:
+            self.conexao.rollback()
+            return False, f"❌ Erro na venda: {str(e)}"
+    
     def listar_lancamentos(self, data_inicio, data_fim):
         self.cursor.execute("""
-            SELECT id, tipo, categoria, descricao, valor, data_lancamento
+            SELECT id, tipo, categoria, descricao, valor, data_lancamento, operador
             FROM financeiro
             WHERE data_lancamento BETWEEN %s AND %s
             ORDER BY data_lancamento DESC
@@ -538,10 +605,141 @@ class BancoDados:
         return [
             {
                 "id": r[0], "tipo": r[1], "categoria": r[2], "descricao": r[3],
-                "valor": r[4], "data": r[5].strftime("%d/%m/%Y")
+                "valor": r[4], "data": r[5].strftime("%d/%m/%Y"), "operador": r[6]
             } for r in resultados
         ]
+    
+    def finalizar_venda_com_carrinho(self, carrinho, forma_pagamento="Dinheiro", operador="Sistema"):
+        """Finaliza a venda com base no carrinho e registra no financeiro"""
+        try:
+            self.cursor.execute("BEGIN;")
+            total = 0
+            descricao_itens = []
 
+            for item in carrinho:
+                item_id = item["id"]
+                valor_unitario = item["valor_venda"]
+                quantidade = item["quantidade"]
+
+                # Baixa do estoque
+                self.cursor.execute("""
+                    SELECT quantidade FROM itens WHERE id = %s
+                """, (item_id,))
+                resultado = self.cursor.fetchone()
+
+                if not resultado or resultado[0] < quantidade:
+                    raise Exception(f"❌ Estoque insuficiente para o item '{item['nome']}'.")
+
+                self.cursor.execute("""
+                    UPDATE itens SET quantidade = quantidade - %s
+                    WHERE id = %s
+                """, (quantidade, item_id))
+
+                total += valor_unitario * quantidade
+                descricao_itens.append(f"{item['nome']} ({item['sabor']}) x{quantidade}")
+
+            descricao_venda = "Itens: " + ", ".join(descricao_itens)
+            categoria = f"Venda - {forma_pagamento}"
+            data_venda = datetime.now().date()
+
+            self.lancar_financeiro("Receita", categoria, f"Venda via PDV por {operador} - {descricao_venda}", total, data_venda)
+
+            self.conexao.commit()
+            return True, f"✅ Venda concluída. Total: R$ {total:.2f}"
+
+        except Exception as e:
+            self.conexao.rollback()
+            return False, f"❌ Erro ao finalizar venda: {str(e)}"
+    
+    def baixar_estoque(self, item_id):
+        try:
+            self.cursor.execute("""
+                SELECT quantidade FROM itens WHERE id = %s
+            """, (item_id,))
+            qtd_atual = self.cursor.fetchone()
+
+            if not qtd_atual or qtd_atual[0] <= 0:
+                raise Exception("Produto sem estoque disponível.")
+
+            self.cursor.execute("""
+                UPDATE itens SET quantidade = quantidade - 1
+                WHERE id = %s
+            """, (item_id,))
+            self.conexao.commit()
+            return True, "✅ Estoque atualizado."
+        except Exception as e:
+            self.conexao.rollback()
+            return False, f"❌ Erro ao baixar estoque: {str(e)}"
+    
+    def excluir_lancamento_financeiro(self, id_lancamento):
+        self.cursor.execute("DELETE FROM financeiro WHERE id = %s", (id_lancamento,))
+        self.conexao.commit()
+        return True
+
+    def aplicar_cupom(self, codigo, total):
+        self.cursor.execute("""
+            SELECT id, percentual_desconto, limite_uso, usos_restantes, validade
+            FROM cupons_desconto
+            WHERE codigo = %s
+        """, (codigo,))
+        cupom = self.cursor.fetchone()
+        
+        if not cupom:
+            return False, "❌ Cupom não encontrado.", 0.0
+
+        id_cupom, percentual, uso_unico, usos_restantes, validade = cupom
+
+        if validade and validade < datetime.now().date():
+            return False, "❌ Cupom expirado.", 0.0
+        if usos_restantes <= 0:
+            return False, "❌ Cupom sem usos restantes.", 0.0
+
+        # Atualiza os usos restantes
+        if uso_unico:
+            self.cursor.execute("UPDATE cupons_desconto SET usos_restantes = 0 WHERE id = %s", (id_cupom,))
+        else:
+            self.cursor.execute("UPDATE cupons_desconto SET usos_restantes = usos_restantes - 1 WHERE id = %s", (id_cupom,))
+        self.conexao.commit()
+
+        # Calcula o valor de desconto
+        percentual_desconto = percentual or 0
+        desconto_aplicado = round((percentual_desconto / 100) * total, 2)
+
+        return True, f"✅ Cupom aplicado com sucesso!", desconto_aplicado
+    
+    def cadastrar_cupom(self, codigo, percentual_desconto, validade, limite_uso):
+        try:
+            self.cursor.execute("""
+                INSERT INTO cupons_desconto (codigo, percentual_desconto, validade, limite_uso, usos_restantes)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (codigo, percentual_desconto, validade, limite_uso, limite_uso))
+            self.conexao.commit()
+            return True, "✅ Cupom cadastrado com sucesso!"
+        except Exception as e:
+            self.conexao.rollback()
+            return False, f"❌ Erro ao cadastrar cupom: {e}"
+
+    def listar_cupons(self):
+        self.cursor.execute("""
+            SELECT codigo, percentual_desconto, validade, limite_uso, usos_restantes
+            FROM cupons_desconto
+        """)
+        resultados = self.cursor.fetchall()
+        return [
+            {
+                "codigo": r[0],
+                "percentual_desconto": r[1],
+                "validade": r[2].strftime("%d/%m/%Y") if r[2] else "",
+                "limite_uso": r[3],
+                "usos_restantes": r[4]
+            }
+            for r in resultados
+        ]
+
+    def excluir_cupom(self, codigo):
+        self.cursor.execute("DELETE FROM cupons_desconto WHERE codigo = %s", (codigo,))
+        self.conexao.commit()
+        return True
 
 
         
