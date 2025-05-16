@@ -5,6 +5,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from controller.controlador_item import ControladorItem
 import pandas as pd
 from datetime import datetime, timedelta
+import tempfile
+import pdfkit
+from fpdf import FPDF
+import os
 
 
 # Configuração da página
@@ -15,7 +19,7 @@ controlador = ControladorItem()
 
 def interface():
     st.title("🍦 Sorveteria Raio de Sol")
-    menu = st.sidebar.selectbox("Escolha uma opção:", ["Cadastrar Sorvete","Cadastrar Despesas Gerais","Cadastrar Eletrônico","Estoque Aberto", "Estoque Fechado","Transferencia de Produtos","Financeiro"])
+    menu = st.sidebar.selectbox("Escolha uma opção:", ["Cadastrar Sorvete","Cadastrar Despesas Gerais","Cadastrar Eletrônico","Estoque Aberto", "Estoque Fechado","Transferencia de Produtos","Financeiro","PDV (Venda)","Cupons"])
 
     #Cadastrar Item
     if menu == "Cadastrar Sorvete":
@@ -27,6 +31,8 @@ def interface():
         valor_venda = st.number_input("Valor de Venda (R$):", min_value=0.0, step=0.01)
         quantidade = st.number_input("Quantidade:", min_value=0, step=1)
         validade = st.date_input("Data de Validade:")
+        codigo_barras = st.text_input("Código de Barras:")
+
 
 
         freezers = controlador.listar_status_freezers("Estoque Aberto") + controlador.listar_status_freezers("Estoque Fechado")
@@ -40,7 +46,7 @@ def interface():
 
             if st.button("Cadastrar"):
                 freezer_id = freezer_options[freezer_selecionado]
-                sucesso, mensagem = controlador.cadastrar_item(nome, sabor, valor_compra, valor_venda, quantidade, freezer_id,validade)
+                sucesso, mensagem = controlador.cadastrar_item(nome, sabor, valor_compra, valor_venda, quantidade, freezer_id, validade, codigo_barras)
                 if sucesso:
                     st.success(mensagem)
                 else:
@@ -333,9 +339,11 @@ def interface():
         descricao = st.text_input("Descrição:")
         valor = st.number_input("Valor:", min_value=0.0, step=0.01)
         data = st.date_input("Data do lançamento:", value=datetime.today())
+        operador = st.text_input("👤 Operador Responsável:", value="admin")
+
 
         if st.button("Lançar"):
-            sucesso = controlador.lancar_financeiro(tipo,categoria,descricao,valor,data)
+            sucesso = controlador.lancar_financeiro(tipo,categoria,descricao,valor,data,operador)
             if sucesso:
                 st.success("✅ Lançamento realizado com sucesso!")
             else:
@@ -369,13 +377,15 @@ def interface():
 
         tipos_disponiveis = list(set(l["tipo"] for l in resultados))
         categorias_disponiveis = list(set(l["categoria"] for l in resultados))
+        operadores_disponiveis = list(set(l["operador"] for l in resultados))
 
         tipo_filtro = st.multiselect("Filtrar por Tipo:", tipos_disponiveis, default=tipos_disponiveis)
         categoria_filtro = st.multiselect("Filtrar por Categoria:", categorias_disponiveis, default=categorias_disponiveis)
+        operador_filtro = st.multiselect("Filtrar por Operador:", operadores_disponiveis, default=operadores_disponiveis)
 
         filtrados = [
             l for l in resultados
-            if l["tipo"] in tipo_filtro and l["categoria"] in categoria_filtro
+            if l["tipo"] in tipo_filtro and l["categoria"] in categoria_filtro and l["operador"] in operador_filtro
         ]
 
         # Cria DataFrame e exibe
@@ -387,7 +397,9 @@ def interface():
                 "tipo": "Tipo",
                 "categoria": "Categoria",
                 "descricao": "Descrição",
-                "valor": "Valor"
+                "valor": "Valor",
+                "operador": "Operador"
+
             }), use_container_width=True)
         else:
             st.info("⚠️ Nenhum lançamento encontrado com os filtros aplicados.")
@@ -412,13 +424,210 @@ def interface():
             for lancamento in resultados:
                 col1, col2 = st.columns([6, 1])
                 with col1:
-                    st.markdown(f"**{lancamento['data']} - {lancamento['tipo']} - {lancamento['categoria']}**")
-                    st.caption(f"{lancamento['descricao']} | R$ {lancamento['valor']:.2f}")
+                    st.markdown(
+                        f"**{lancamento['data']} - {lancamento['tipo']} - {lancamento['categoria']}**"
+                    )
+                    st.caption(f"{lancamento['descricao']} | R$ {lancamento['valor']:.2f} | 👤 {lancamento['operador']}")
                 with col2:
                     if st.button("🗑️", key=f"del_{lancamento['id']}"):
                         controlador.excluir_lancamento_financeiro(lancamento['id'])
                         st.rerun()
+    
+    elif menu == "PDV (Venda)":
+        st.subheader("🛒 Ponto de Venda (PDV)")
 
+        if "carrinho" not in st.session_state:
+            st.session_state.carrinho = []
+        if "cupom_aplicado" not in st.session_state:
+            st.session_state.cupom_aplicado = None
+
+        with st.form(key="form_venda"):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                codigo = st.text_input("📦 Código de Barras")
+            with col2:
+                quantidade = st.number_input("Qtd", min_value=1, value=1)
+
+            operador = st.text_input("👤 Operador", value="Operador 1")
+
+            submitted = st.form_submit_button("Adicionar ao Carrinho")
+
+            if submitted:
+                if not codigo:
+                    st.warning("⚠️ Código de barras não informado.")
+                else:
+                    item = controlador.banco.buscar_item_por_codigo(codigo)
+                    if item:
+                        if item["quantidade"] < quantidade:
+                            st.error(f"❌ Apenas {item['quantidade']} unidade(s) disponíveis em estoque.")
+                        else:
+                            item["vendendo"] = quantidade
+                            st.session_state.carrinho.append(item)
+                            st.success(f"✅ Produto '{item['nome']} - {item['sabor']}' adicionado ao carrinho.")
+                    else:
+                        # Se não achou pelo código, permite selecionar manualmente
+                        todos = controlador.listar_itens()
+                        lista_produtos = [f"{i['nome']} - {i['sabor']} | Estoque: {i['quantidade']}" for i in todos if i['quantidade'] > 0]
+                        escolhido = st.selectbox("🔎 Produto não encontrado. Selecione manualmente:", lista_produtos)
+                        if escolhido:
+                            i = todos[lista_produtos.index(escolhido)]
+                            if i["quantidade"] < quantidade:
+                                st.error(f"❌ Apenas {i['quantidade']} unidade(s) disponíveis.")
+                            else:
+                                i["vendendo"] = quantidade
+                                st.session_state.carrinho.append(i)
+                                st.success(f"✅ Produto '{i['nome']} - {i['sabor']}' adicionado ao carrinho.")
+
+        if st.session_state.carrinho:
+            st.divider()
+            st.subheader("🛍️ Carrinho de Compras")
+
+            total = 0
+            for idx, item in enumerate(st.session_state.carrinho):
+                col1, col2, col3, col4, col5 = st.columns([4, 2, 2, 2, 1])
+                with col1:
+                    st.write(f"**{item['nome']} - {item['sabor']}**")
+                with col2:
+                    st.write(f"R$ {item['valor_venda']:.2f}")
+                with col3:
+                    st.write(f"Qtd. vendida: {item['vendendo']}")
+                with col4:
+                    st.write(f"Estoque: {item['quantidade']}")
+                with col5:
+                    if st.button("❌", key=f"del_{idx}"):
+                        st.session_state.carrinho.pop(idx)
+                        st.rerun()
+                total += item["valor_venda"] * item["vendendo"]
+
+            st.markdown(f"**💵 Subtotal:** R$ {total:.2f}")
+
+            # Cupom
+            with st.form("form_cupom"):
+                cupom_input = st.text_input("🎟️ Cupom de Desconto")
+                aplicar = st.form_submit_button("Aplicar Cupom")
+                if aplicar and cupom_input:
+                    sucesso, mensagem, valor_desconto = controlador.banco.aplicar_cupom(cupom_input, total)
+                    if valor_desconto > 0:
+                        st.session_state.cupom_aplicado = {"codigo": cupom_input, "valor": valor_desconto}
+                        st.success(f"✅ Cupom '{cupom_input}' aplicado! Desconto de R$ {valor_desconto:.2f}")
+                    else:
+                        st.error("❌ Cupom inválido, expirado, esgotado ou não aplicável.")
+            
+            valor_desconto = 0.0 
+
+            if "cupom_input" in st.session_state and st.session_state.cupom_input_aplicado:
+                sucesso, mensagem, valor_desconto = controlador.banco.aplicar_cupom(
+                    st.session_state.cupom_input, total
+                )
+                if sucesso:
+                    st.success(mensagem)
+                else:
+                    st.warning(mensagem)
+                    valor_desconto = 0.0
+
+            desconto = st.session_state.cupom_aplicado["valor"] if st.session_state.cupom_aplicado else 0
+            total_final = total - valor_desconto
+
+            forma_pagamento = st.selectbox("💳 Forma de Pagamento", ["Dinheiro", "Cartão", "Pix", "Outros"])
+
+            st.markdown(f"**🧾 Total com Desconto:** R$ {total_final:.2f}")
+
+            if st.button("Finalizar Venda"):
+                sucesso = True
+                descricao_itens = []
+                for item in st.session_state.carrinho:
+                    for _ in range(item["vendendo"]):
+                        ok, msg = controlador.banco.baixar_estoque(item["id"])
+                        if not ok:
+                            st.error(msg)
+                            sucesso = False
+                            break
+                    if not sucesso:
+                        break
+                    descricao_itens.append(f"{item['vendendo']}x {item['nome']} - {item['sabor']}")
+
+                if sucesso:
+                    descricao_venda = f"{operador} | " + " | ".join(descricao_itens)
+                    data_venda = datetime.now().date()
+
+                    categoria = f"Venda - {forma_pagamento}"
+                    controlador.banco.lancar_financeiro(
+                        tipo="Receita",
+                        categoria=categoria,
+                        descricao=descricao_venda,
+                        valor=total_final,
+                        data=data_venda,
+                        operador=operador
+                    )
+
+                    st.success("✅ Venda finalizada com sucesso!")
+
+                    with st.expander("🧾 Recibo da Venda", expanded=True):
+                        recibo = f"Recibo - {data_venda.strftime('%d/%m/%Y %H:%M:%S')}\nOperador: {operador}\n\n"
+                        for i in st.session_state.carrinho:
+                            linha = f"{i['vendendo']}x {i['nome']} - {i['sabor']} @ R$ {i['valor_venda']:.2f}"
+                            st.markdown(f"- {linha}")
+                            recibo += linha + "\n"
+                        recibo += f"\nSubtotal: R$ {total:.2f}\n"
+                        if desconto > 0:
+                            recibo += f"Desconto ({st.session_state.cupom_aplicado['codigo']}): -R$ {desconto:.2f}\n"
+                        recibo += f"Total Final: R$ {total_final:.2f}\nForma de Pagamento: {forma_pagamento}"
+
+                        pdf = FPDF()
+                        pdf.add_page()
+                        pdf.set_font("Arial", size=12)
+                        for linha in recibo.strip().split("\n"):
+                            pdf.cell(200, 10, txt=linha, ln=True)
+                        nome_arquivo = f"recibo_{data_venda.strftime('%Y%m%d_%H%M%S')}.pdf"
+                        caminho = f"recibos/{nome_arquivo}"
+                        os.makedirs("recibos", exist_ok=True)
+                        pdf.output(caminho)
+
+                        with open(caminho, "rb") as f:
+                            st.download_button("📥 Baixar Recibo em PDF", f, file_name=nome_arquivo)
+
+                    st.session_state.carrinho.clear()
+                    st.session_state.cupom_aplicado = None
+        else:
+            st.info("🧺 O carrinho está vazio.")
+        
+    elif menu == "Cupons":
+        st.subheader("🎟️ Gerenciar Cupons de Desconto")
+
+        with st.form("form_cupom"):
+            codigo = st.text_input("Código do Cupom")
+            valor = st.number_input("Percentual de Desconto", min_value=0.01, step=0.01)
+            validade = st.date_input("Validade do Cupom")
+            limite_uso = st.number_input("Limite de uso", min_value=1, step=1)
+
+            if st.form_submit_button("Cadastrar Cupom"):
+                sucesso, mensagem = controlador.cadastrar_cupom(codigo, valor, validade, limite_uso)
+                if sucesso:
+                    st.success(mensagem)
+                else:
+                    st.error(mensagem)
+
+        st.divider()
+        st.subheader("📋 Cupons Cadastrados")
+
+        cupons = controlador.listar_cupons()
+        if not cupons:
+            st.info("Nenhum cupom cadastrado.")
+        else:
+            for cupom in cupons:
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    st.markdown(f"**{cupom['codigo']}** | "
+                        f"Desconto: {cupom['percentual_desconto']}% | "
+                        f"Validade: {cupom['validade']} | "
+                        f"Usos restantes: {cupom['usos_restantes']}/{cupom['limite_uso']}")
+                with col2:
+                    if st.button("🗑️", key=f"del_{cupom['codigo']}"):
+                        controlador.excluir_cupom(cupom['codigo'])
+                        st.success(f"Cupom {cupom['codigo']} excluído com sucesso!")
+                        st.rerun()
+
+        
 
 if __name__ == "__main__":
     interface()

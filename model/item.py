@@ -1,12 +1,13 @@
 class Item:
-    def __init__(self, id=None, nome="", sabor="", valor_compra=0.0,valor_venda=0.0 ,quantidade=0,validade=""):
-        self.id = id
+    def __init__(self, nome, sabor, valor_compra, valor_venda, quantidade, validade, codigo_barras):
         self.nome = nome
         self.sabor = sabor
         self.valor_compra = valor_compra
         self.valor_venda = valor_venda
         self.quantidade = quantidade
         self.validade = validade
+        self.codigo_barras = codigo_barras
+
 
 class ArmazenamentoDiversos:
     def __init__(self, id=None, nome="", sabor="", valor=0.0, quantidade=0,categoria=""):
